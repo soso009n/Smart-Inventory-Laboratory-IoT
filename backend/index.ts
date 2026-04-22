@@ -3,7 +3,9 @@
  * Smart Inventory Laboratory IoT System
  * Computer Engineering - Tugas Akhir
  */
-
+import authRoutes from './routes/authRoutes';
+import loanRoutes from './routes/loanRoutes';
+import inventoryRoutes from './routes/inventoryRoutes';
 import express, { Application, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -44,7 +46,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Request logging middleware (development only)
 if (process.env.NODE_ENV === 'development') {
-  app.use((req: Request, res: Response, next: NextFunction) => {
+  app.use((req: Request, _res: Response, next: NextFunction) => {
     console.log(`📥 ${req.method} ${req.path} - ${new Date().toISOString()}`);
     next();
   });
@@ -53,7 +55,7 @@ if (process.env.NODE_ENV === 'development') {
 // ========== ROUTES ==========
 
 // Health check endpoint
-app.get('/api/health', (req: Request, res: Response) => {
+app.get('/api/health', (_req: Request, res: Response) => {
   res.status(200).json({
     success: true,
     message: 'API is running smoothly',
@@ -63,7 +65,7 @@ app.get('/api/health', (req: Request, res: Response) => {
 });
 
 // API info endpoint
-app.get('/api', (req: Request, res: Response) => {
+app.get('/api', (_req: Request, res: Response) => {
   res.status(200).json({
     success: true,
     message: 'Smart Inventory Laboratory IoT - API Server',
@@ -81,9 +83,9 @@ app.get('/api', (req: Request, res: Response) => {
 });
 
 // Register routes (uncomment setelah routes dibuat)
-// app.use('/api/auth', authRoutes);
-// app.use('/api/inventory', inventoryRoutes);
-// app.use('/api/loans', loanRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/loans', loanRoutes);
 // app.use('/api/users', userRoutes);
 
 // 404 handler - route tidak ditemukan
@@ -101,7 +103,7 @@ interface CustomError extends Error {
   status?: number;
 }
 
-app.use((err: CustomError, req: Request, res: Response, next: NextFunction) => {
+app.use((err: CustomError, _req: Request, res: Response, _next: NextFunction) => {
   console.error('❌ Server Error:', err.stack);
 
   res.status(err.status || 500).json({

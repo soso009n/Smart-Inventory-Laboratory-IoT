@@ -1,40 +1,27 @@
 /**
- * Database Configuration - PostgreSQL Connection Pool
+ * Database Configuration - PostgreSQL Connection Pool (NEON SERVERLESS)
  * Sistem Manajemen Inventaris Laboratorium IoT
- *
- * Menggunakan pg Pool untuk connection pooling yang efisien
- * dan reusable connections untuk performa optimal
  */
 
-import { Pool, PoolClient, QueryResult, PoolConfig } from 'pg';
+import { Pool, PoolClient, QueryResult, PoolConfig, QueryResultRow } from 'pg';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Interface untuk pool configuration
-interface DatabaseConfig extends PoolConfig {
-  host: string;
-  port: number;
-  database: string;
-  user: string;
-  password: string;
-  max: number;
-  idleTimeoutMillis: number;
-  connectionTimeoutMillis: number;
-}
-
-// Konfigurasi connection pool dengan type safety
-const poolConfig: DatabaseConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME || 'smart_inventory_lab',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || '',
+// Konfigurasi connection pool khusus untuk Neon (menggunakan connectionString & SSL)
+const poolConfig: PoolConfig = {
+  // Mengambil URL Neon dari file .env
+  connectionString: process.env.DATABASE_URL,
+  
+  // WAJIB UNTUK NEON CLOUD: Mengaktifkan mode SSL
+  ssl: {
+    rejectUnauthorized: false
+  },
 
   // Pool settings untuk optimasi performa
-  max: parseInt(process.env.DB_MAX_POOL || '20'), // Maksimal koneksi dalam pool
-  idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT || '30000'), // 30 detik
-  connectionTimeoutMillis: parseInt(process.env.DB_CONNECTION_TIMEOUT || '2000'), // 2 detik
+  max: parseInt(process.env.DB_MAX_POOL || '20'),
+  idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT || '30000'),
+  connectionTimeoutMillis: parseInt(process.env.DB_CONNECTION_TIMEOUT || '2000'),
 };
 
 // Buat instance Pool
@@ -42,7 +29,7 @@ const pool = new Pool(poolConfig);
 
 // Event listener untuk monitoring
 pool.on('connect', () => {
-  console.log('🔌 New client connected to PostgreSQL database');
+  console.log('🔌 New client connected to Neon Serverless Postgres');
 });
 
 pool.on('error', (err: Error) => {
@@ -52,7 +39,6 @@ pool.on('error', (err: Error) => {
 
 /**
  * Function untuk test koneksi database
- * Digunakan saat aplikasi pertama kali dijalankan
  */
 export const testConnection = async (): Promise<boolean> => {
   try {
@@ -61,8 +47,7 @@ export const testConnection = async (): Promise<boolean> => {
 
     console.log('✅ Database connection successful!');
     console.log(`📅 Server time: ${result.rows[0].now}`);
-    console.log(`🗄️  Database: ${poolConfig.database}`);
-    console.log(`🖥️  Host: ${poolConfig.host}:${poolConfig.port}`);
+    console.log(`🖥️  Host: Neon Serverless Database`);
     console.log(`📦 PostgreSQL version: ${result.rows[0].version.split(',')[0]}`);
 
     client.release();
@@ -70,16 +55,16 @@ export const testConnection = async (): Promise<boolean> => {
   } catch (error) {
     const err = error as Error;
     console.error('❌ Database connection failed:', err.message);
-    console.error('💡 Please check your .env configuration and ensure PostgreSQL is running');
+    console.error('💡 Pastikan DATABASE_URL di file .env sudah diisi dengan link dari Neon');
     return false;
   }
 };
 
 /**
  * Function untuk query dengan type safety
- * Wrapper untuk memudahkan query dengan automatic connection management
+ * (Sudah diperbaiki dengan QueryResultRow agar lolos strict mode TypeScript)
  */
-export const query = async <T = any>(
+export const query = async <T extends QueryResultRow = any>(
   text: string,
   params?: any[]
 ): Promise<QueryResult<T>> => {
@@ -88,7 +73,6 @@ export const query = async <T = any>(
     const result = await pool.query<T>(text, params);
     const duration = Date.now() - start;
 
-    // Log query untuk debugging (comment di production)
     if (process.env.NODE_ENV === 'development') {
       console.log('📊 Executed query', {
         text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
@@ -113,7 +97,6 @@ type TransactionCallback<T> = (client: PoolClient) => Promise<T>;
 
 /**
  * Function untuk transaction dengan rollback otomatis
- * Memudahkan operasi yang memerlukan multiple queries
  */
 export const transaction = async <T = any>(
   callback: TransactionCallback<T>
@@ -139,7 +122,6 @@ export const transaction = async <T = any>(
 
 /**
  * Graceful shutdown function
- * Menutup semua koneksi dengan aman saat aplikasi dihentikan
  */
 export const closePool = async (): Promise<void> => {
   try {
@@ -151,14 +133,8 @@ export const closePool = async (): Promise<void> => {
   }
 };
 
-/**
- * Export pool untuk direct access jika diperlukan
- */
 export { pool };
 
-/**
- * Export default object untuk backward compatibility
- */
 export default {
   pool,
   query,
