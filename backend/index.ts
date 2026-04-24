@@ -3,6 +3,7 @@
  * Smart Inventory Laboratory IoT System
  * Computer Engineering - Tugas Akhir
  */
+import userRoutes from './routes/userRoutes';
 import authRoutes from './routes/authRoutes';
 import loanRoutes from './routes/loanRoutes';
 import inventoryRoutes from './routes/inventoryRoutes';
@@ -86,7 +87,7 @@ app.get('/api', (_req: Request, res: Response) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/loans', loanRoutes);
-// app.use('/api/users', userRoutes);
+app.use('/api/users', userRoutes);
 
 // 404 handler - route tidak ditemukan
 app.use((req: Request, res: Response) => {

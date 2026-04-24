@@ -4,7 +4,8 @@ import { Check, X, Loader2, ArrowRight, Sparkles, Plus } from "lucide-react";
 import GlassModal from "./GlassModal";
 import { useToast } from "./Toast";
 
-export type FieldType = "text" | "email" | "number" | "date" | "select" | "textarea";
+// 1. Pastikan "password" ada di sini
+export type FieldType = "text" | "email" | "number" | "date" | "select" | "textarea" | "password";
 
 export interface GlassField<T = any> {
   key: keyof T & string;
@@ -12,7 +13,8 @@ export interface GlassField<T = any> {
   type: FieldType;
   required?: boolean;
   placeholder?: string;
-  options?: { value: string; label: string }[];
+  // 2. Ubah value agar bisa menerima string, number, atau boolean
+  options?: { value: string | number | boolean; label: string }[];
   colSpan?: 1 | 2;
   validate?: (value: any, all: T) => string | null;
 }
@@ -86,6 +88,7 @@ export default function GlassFormModal<T extends Record<string, any>>({
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setSaving(true);
+    // Simulasi loading sebentar agar UX terasa nyata
     await new Promise((r) => setTimeout(r, 950));
     onSubmit(form);
     setSaving(false);
@@ -143,23 +146,23 @@ export default function GlassFormModal<T extends Record<string, any>>({
             <div className="sticky top-0 rounded-xl border border-white/60 bg-white/50 backdrop-blur-xl p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Sparkles className="w-4 h-4 text-[#3498DB]" />
-                <p className="text-sm text-slate-700">Perbandingan Perubahan</p>
+                <p className="text-sm text-slate-700 font-bold">Perbandingan Perubahan</p>
               </div>
               {diffs.length === 0 ? (
-                <p className="text-sm text-slate-500 py-6 text-center">Belum ada perubahan</p>
+                <p className="text-sm text-slate-500 py-6 text-center italic">Belum ada perubahan</p>
               ) : (
                 <div className="space-y-3">
                   {diffs.map((k) => {
                     const meta = fields.find((f) => f.key === k)!;
                     return (
-                      <div key={k} className="rounded-lg bg-white/70 border border-white/80 p-3">
-                        <p className="text-xs text-slate-500 mb-1.5">{meta.label}</p>
+                      <div key={k} className="rounded-lg bg-white/70 border border-white/80 p-3 shadow-sm">
+                        <p className="text-xs text-slate-500 mb-1.5 font-bold uppercase">{meta.label}</p>
                         <div className="flex items-center gap-2 text-sm">
-                          <span className="px-2 py-1 rounded-md bg-rose-100/70 text-rose-700 line-through truncate max-w-[7rem]">
+                          <span className="px-2 py-1 rounded-md bg-rose-100 text-rose-700 line-through truncate max-w-[7rem]">
                             {String((original as any)[k]) || "—"}
                           </span>
                           <ArrowRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                          <span className="px-2 py-1 rounded-md bg-emerald-100/70 text-emerald-700 truncate max-w-[7rem]">
+                          <span className="px-2 py-1 rounded-md bg-emerald-100 text-emerald-700 font-bold truncate max-w-[7rem]">
                             {String((form as any)[k]) || "—"}
                           </span>
                         </div>
@@ -173,7 +176,7 @@ export default function GlassFormModal<T extends Record<string, any>>({
         )}
 
         <div className={`${showComparison ? "md:col-span-5" : ""} flex items-center justify-between pt-4 border-t border-white/60`}>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-slate-600 font-medium italic">
             {mode === "edit"
               ? diffs.length > 0
                 ? `${diffs.length} perubahan siap disimpan`
@@ -228,17 +231,17 @@ function FieldRow({
   const showValid = touched && valid;
 
   const borderClass = showErr
-    ? "border-rose-400/80 ring-rose-200/60"
+    ? "border-rose-400 ring-rose-200/60"
     : focused
     ? "border-[#3498DB] ring-[#3498DB]/30"
     : changed
-    ? "border-emerald-400/70 ring-emerald-200/40"
+    ? "border-emerald-400 ring-emerald-200/40"
     : "border-white/70 ring-transparent";
 
   return (
     <div>
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-sm text-slate-800">{field.label}</span>
+        <span className="text-sm text-slate-800 font-semibold">{field.label}</span>
         {field.required && (
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3498DB] opacity-60" />
@@ -254,9 +257,16 @@ function FieldRow({
         >
           {field.type === "select" ? (
             <select
-              value={value ?? ""}
+              value={String(value ?? "")} // Konversi ke string untuk element HTML
               onChange={(e) => {
-                onChange(e.target.value);
+                const val = e.target.value;
+                // Mengembalikan tipe data asli jika boolean/number
+                let finalVal: any = val;
+                if (val === "true") finalVal = true;
+                if (val === "false") finalVal = false;
+                if (!isNaN(Number(val)) && val !== "" && typeof value === 'number') finalVal = Number(val);
+                
+                onChange(finalVal);
                 setTouched(true);
               }}
               onFocus={() => setFocused(true)}
@@ -264,10 +274,10 @@ function FieldRow({
                 setFocused(false);
                 setTouched(true);
               }}
-              className="w-full px-4 py-2.5 bg-transparent focus:outline-none rounded-lg appearance-none"
+              className="w-full px-4 py-2.5 bg-transparent focus:outline-none rounded-lg appearance-none cursor-pointer"
             >
               {field.options?.map((o) => (
-                <option key={o.value} value={o.value}>
+                <option key={String(o.value)} value={String(o.value)}>
                   {o.label}
                 </option>
               ))}
@@ -335,7 +345,7 @@ function FieldRow({
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
-              className="text-xs text-rose-600 mt-1.5"
+              className="text-xs text-rose-600 mt-1.5 font-bold"
             >
               {error}
             </motion.p>
@@ -373,7 +383,7 @@ function SmartSaveButton({
         borderRadius: saving || done ? 24 : 8,
       }}
       transition={{ type: "spring", stiffness: 260, damping: 24 }}
-      className="relative h-11 px-6 flex items-center justify-center gap-2 bg-gradient-to-br from-[#3498DB] to-[#2C3E50] text-white shadow-[0_8px_24px_-8px_rgba(52,152,219,0.7)] disabled:opacity-40 disabled:cursor-not-allowed overflow-hidden"
+      className="relative h-11 px-6 flex items-center justify-center gap-2 bg-gradient-to-br from-[#3498DB] to-[#2C3E50] text-white shadow-[0_8px_24px_-8px_rgba(52,152,219,0.7)] disabled:opacity-40 disabled:cursor-not-allowed overflow-hidden font-bold"
     >
       <AnimatePresence mode="wait">
         {done ? (
