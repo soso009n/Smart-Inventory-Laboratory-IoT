@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router";
+import { Navigate } from "react-router";
 import axios from "axios";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
@@ -28,7 +28,6 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { login, isAuthenticated } = useAuth();
-  const navigate = useNavigate();
 
   if (isAuthenticated()) {
     return <Navigate to="/dashboard" replace />;
@@ -42,7 +41,6 @@ export default function LoginPage() {
       const response = await axios.post<LoginResponse>(LOGIN_URL, { email, password });
       if (response.data?.success && response.data.token && response.data.user) {
         login({ token: response.data.token, user: response.data.user });
-        navigate("/dashboard", { replace: true });
         return;
       }
       setError("Login failed. Please check your credentials.");

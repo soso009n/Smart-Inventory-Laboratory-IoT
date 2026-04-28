@@ -58,7 +58,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(payload.user);
     try {
       localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload));
-    } catch {}
+    } catch (error) {
+      console.warn("Unable to persist auth session.", error);
+    }
   }, []);
 
   const logout = useCallback(() => {
@@ -66,7 +68,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(null);
     try {
       localStorage.removeItem(AUTH_STORAGE_KEY);
-    } catch {}
+    } catch (error) {
+      console.warn("Unable to clear auth session.", error);
+    }
   }, []);
 
   const isAuthenticated = useCallback(() => Boolean(token && user), [token, user]);

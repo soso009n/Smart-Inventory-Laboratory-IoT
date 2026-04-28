@@ -22,8 +22,11 @@ const navItems: NavItem[] = [
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const hasAccess = (roles?: UserRole[]) => !roles || (user ? roles.includes(user.role) : false);
-  const visibleItems = navItems.filter((item) => hasAccess(item.roles));
+  if (!user) {
+    return null;
+  }
+
+  const visibleItems = navItems.filter((item) => !item.roles || item.roles.includes(user.role));
 
   const handleLogout = () => {
     logout();
