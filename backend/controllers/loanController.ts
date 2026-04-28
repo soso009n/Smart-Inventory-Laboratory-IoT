@@ -1,14 +1,47 @@
-import { Request, Response } from 'express';
-import { query, transaction } from '../config/db';
+import type { Request, Response } from "express";
+import { query, transaction } from "../config/db";
+
+type UserRole = "admin" | "student";
+type LoanStatus = "Borrowed" | "Returned" | "Overdue";
 
 type LoanRow = {
   id: number;
   user_id: number;
   item_id: number;
-  status: string;
-  due_date: string;
-  return_date: string | null;
+  status: LoanStatus;
+  due_date: Date | string;
+  return_date: Date | string | null;
 };
+
+type LoanDetailRow = LoanRow & {
+  borrow_date: Date | string;
+  user_full_name: string;
+  user_email: string;
+  item_name: string;
+  category: string;
+  item_status: string;
+};
+
+type BorrowerRow = {
+  id: number;
+  role: UserRole;
+  is_active: boolean | null;
+  deleted_at: Date | string | null;
+};
+
+type ItemStockRow = {
+  id: number;
+  status: string;
+  total_stock: number;
+  available_stock: number;
+  deleted_at?: Date | string | null;
+};
+
+type IdRow = {
+  id: number;
+};
+
+const VALID_LOAN_STATUSES: LoanStatus[] = ["Borrowed", "Returned", "Overdue"];
 
 const buildError = (status: number, message: string) => {
   const error = new Error(message) as Error & { status?: number };
@@ -16,17 +49,37 @@ const buildError = (status: number, message: string) => {
   return error;
 };
 
-let loansDeletedAtChecked = false;
-let loansHasDeletedAt = false;
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  return "Unknown server error";
+};
 
-const ensureLoansDeletedAt = async () => {
-  if (loansDeletedAtChecked) return loansHasDeletedAt;
-  const result = await query(
-    `SELECT 1 FROM information_schema.columns WHERE table_name = 'loans' AND column_name = 'deleted_at'`
-  );
-  loansHasDeletedAt = result.rows.length > 0;
-  loansDeletedAtChecked = true;
-  return loansHasDeletedAt;
+const getErrorStatus = (error: unknown): number => {
+  if (error instanceof Error && "status" in error) {
+    const status = (error as Error & { status?: number }).status;
+    return typeof status === "number" ? status : 500;
+  }
+
+  return 500;
+};
+
+const parseId = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : NaN;
+};
+
+const isValidLoanStatus = (status: unknown): status is LoanStatus => {
+  return VALID_LOAN_STATUSES.includes(status as LoanStatus);
+};
+
+const ensureAuthenticated = (req: Request) => {
+  const requester = req.user;
+
+  if (!requester) {
+    throw buildError(401, "Unauthorized");
+  }
+
+  return requester;
 };
 
 const loanSelect = `
@@ -48,312 +101,445 @@ const loanSelect = `
   JOIN items i ON l.item_id = i.id
 `;
 
-const buildLoanWhere = (conditions: string[]) =>
-  conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+const buildLoanWhere = (conditions: string[]) => {
+  return conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+};
 
 // 1. CREATE: Catat peminjaman baru
 export const createLoan = async (req: Request, res: Response): Promise<void> => {
   try {
-    const requester = req.user;
-    if (!requester) {
-      throw buildError(401, 'Unauthorized');
-    }
+    const requester = ensureAuthenticated(req);
 
     const userId =
-      requester.role === 'student'
+      requester.role === "student"
         ? requester.id
-        : Number(req.body.user_id ?? req.body.userId);
-    const itemId = Number(req.body.item_id ?? req.body.itemId);
+        : parseId(req.body.user_id ?? req.body.userId);
+
+    const itemId = parseId(req.body.item_id ?? req.body.itemId);
     const dueDate = req.body.due_date ?? req.body.dueDate;
 
-    if (!itemId || Number.isNaN(itemId) || !dueDate) {
-      throw buildError(400, 'Data peminjaman tidak lengkap');
+    if (Number.isNaN(itemId) || !dueDate) {
+      throw buildError(400, "Data peminjaman tidak lengkap");
     }
 
-    if (requester.role === 'admin' && (!userId || Number.isNaN(userId))) {
-      throw buildError(400, 'User peminjam wajib dipilih');
+    if (requester.role === "admin" && Number.isNaN(userId)) {
+      throw buildError(400, "User peminjam wajib dipilih");
     }
 
     const result = await transaction(async (client) => {
-      const userResult = await client.query(
-        `SELECT id, role, is_active, deleted_at FROM users WHERE id = $1`,
+      const userResult = await client.query<BorrowerRow>(
+        `
+        SELECT id, role, is_active, deleted_at
+        FROM users
+        WHERE id = $1
+        `,
         [userId]
       );
 
       if (userResult.rows.length === 0) {
-        throw buildError(404, 'User peminjam tidak ditemukan');
+        throw buildError(404, "User peminjam tidak ditemukan");
       }
 
       const borrower = userResult.rows[0];
+
       if (borrower.deleted_at) {
-        throw buildError(400, 'User peminjam sudah dihapus');
-      }
-      if (borrower.is_active === false) {
-        throw buildError(400, 'User peminjam tidak aktif');
-      }
-      if (borrower.role !== 'student') {
-        throw buildError(400, 'Peminjam harus berstatus student');
+        throw buildError(400, "User peminjam sudah dihapus");
       }
 
-      const itemResult = await client.query(
-        `SELECT id, status, total_stock, available_stock, deleted_at FROM items WHERE id = $1 FOR UPDATE`,
+      if (borrower.is_active === false) {
+        throw buildError(400, "User peminjam tidak aktif");
+      }
+
+      if (borrower.role !== "student") {
+        throw buildError(400, "Peminjam harus berstatus student");
+      }
+
+      const itemResult = await client.query<ItemStockRow>(
+        `
+        SELECT id, status, total_stock, available_stock, deleted_at
+        FROM items
+        WHERE id = $1
+        FOR UPDATE
+        `,
         [itemId]
       );
 
       if (itemResult.rows.length === 0) {
-        throw buildError(404, 'Item tidak ditemukan');
+        throw buildError(404, "Item tidak ditemukan");
       }
 
       const item = itemResult.rows[0];
+
       if (item.deleted_at) {
-        throw buildError(400, 'Item sudah dihapus');
+        throw buildError(400, "Item sudah dihapus");
       }
-      if (item.status === 'Maintenance') {
-        throw buildError(400, 'Item sedang maintenance');
+
+      if (item.status === "Maintenance") {
+        throw buildError(400, "Item sedang maintenance");
       }
 
       const availableStock = Number(item.available_stock);
       const totalStock = Number(item.total_stock);
+
       if (availableStock <= 0) {
-        throw buildError(400, 'Stock item tidak tersedia');
-      }
-      if (availableStock > totalStock) {
-        throw buildError(400, 'Stock item tidak valid');
+        throw buildError(400, "Stock item tidak tersedia");
       }
 
-      const loanInsert = await client.query(
-        `INSERT INTO loans (user_id, item_id, due_date, status)
-         VALUES ($1, $2, $3, 'Borrowed') RETURNING *`,
+      if (availableStock > totalStock) {
+        throw buildError(400, "Stock item tidak valid");
+      }
+
+      const loanInsert = await client.query<LoanRow>(
+        `
+        INSERT INTO loans (user_id, item_id, due_date, status)
+        VALUES ($1, $2, $3, 'Borrowed')
+        RETURNING *
+        `,
         [userId, itemId, dueDate]
       );
 
-      await client.query(`UPDATE items SET available_stock = available_stock - 1 WHERE id = $1`, [itemId]);
+      await client.query(
+        `
+        UPDATE items
+        SET available_stock = available_stock - 1
+        WHERE id = $1
+        `,
+        [itemId]
+      );
 
       return loanInsert.rows[0];
     });
 
-    res.status(201).json({ success: true, message: 'Peminjaman berhasil dicatat', data: result });
-  } catch (error: any) {
-    res
-      .status(error.status || 500)
-      .json({ success: false, message: error.message || 'Gagal mencatat peminjaman' });
+    res.status(201).json({
+      success: true,
+      message: "Peminjaman berhasil dicatat",
+      data: result,
+    });
+  } catch (error: unknown) {
+    res.status(getErrorStatus(error)).json({
+      success: false,
+      message: getErrorMessage(error) || "Gagal mencatat peminjaman",
+    });
   }
 };
 
 // 2. READ: Ambil semua data peminjaman
 export const getAllLoansWithDetails = async (req: Request, res: Response): Promise<void> => {
   try {
-    const requester = req.user;
-    if (!requester) {
-      throw buildError(401, 'Unauthorized');
-    }
+    const requester = ensureAuthenticated(req);
 
-    const hasDeletedAt = await ensureLoansDeletedAt();
-    const conditions: string[] = [];
-    const params: Array<number> = [];
+    const conditions: string[] = ["l.deleted_at IS NULL"];
+    const params: number[] = [];
 
-    if (hasDeletedAt) {
-      conditions.push('l.deleted_at IS NULL');
-    }
-
-    if (requester.role === 'student') {
+    if (requester.role === "student") {
       params.push(requester.id);
       conditions.push(`l.user_id = $${params.length}`);
     }
 
-    const result = await query(`${loanSelect} ${buildLoanWhere(conditions)} ORDER BY l.borrow_date DESC`, params);
+    const result = await query<LoanDetailRow>(
+      `
+      ${loanSelect}
+      ${buildLoanWhere(conditions)}
+      ORDER BY l.borrow_date DESC
+      `,
+      params
+    );
 
-    res.status(200).json({ success: true, data: result.rows });
-  } catch (error: any) {
-    res
-      .status(error.status || 500)
-      .json({ success: false, message: error.message || 'Gagal mengambil riwayat' });
+    res.status(200).json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error: unknown) {
+    res.status(getErrorStatus(error)).json({
+      success: false,
+      message: getErrorMessage(error) || "Gagal mengambil riwayat",
+    });
   }
 };
 
 // 3. READ: Detail peminjaman
 export const getLoanById = async (req: Request, res: Response): Promise<void> => {
   try {
-    const requester = req.user;
-    if (!requester) {
-      throw buildError(401, 'Unauthorized');
+    const requester = ensureAuthenticated(req);
+    const id = parseId(req.params.id);
+
+    if (Number.isNaN(id)) {
+      throw buildError(400, "ID loan tidak valid");
     }
 
-    const hasDeletedAt = await ensureLoansDeletedAt();
-    const conditions = ['l.id = $1'];
-    const params: Array<number | string> = [req.params.id];
+    const conditions = ["l.id = $1", "l.deleted_at IS NULL"];
+    const params: number[] = [id];
 
-    if (hasDeletedAt) {
-      conditions.push('l.deleted_at IS NULL');
-    }
-
-    if (requester.role === 'student') {
+    if (requester.role === "student") {
       params.push(requester.id);
       conditions.push(`l.user_id = $${params.length}`);
     }
 
-    const result = await query(`${loanSelect} ${buildLoanWhere(conditions)}`, params);
+    const result = await query<LoanDetailRow>(
+      `
+      ${loanSelect}
+      ${buildLoanWhere(conditions)}
+      `,
+      params
+    );
+
     if (result.rows.length === 0) {
-      res.status(404).json({ success: false, message: 'Data peminjaman tidak ditemukan' });
+      res.status(404).json({
+        success: false,
+        message: "Data peminjaman tidak ditemukan",
+      });
       return;
     }
 
-    res.status(200).json({ success: true, data: result.rows[0] });
-  } catch (error: any) {
-    res
-      .status(error.status || 500)
-      .json({ success: false, message: error.message || 'Gagal mengambil data peminjaman' });
+    res.status(200).json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error: unknown) {
+    res.status(getErrorStatus(error)).json({
+      success: false,
+      message: getErrorMessage(error) || "Gagal mengambil data peminjaman",
+    });
   }
 };
 
-// 4. UPDATE: Update data peminjaman (admin)
+// 4. UPDATE: Update data peminjaman umum, admin only dari route
 export const updateLoan = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
-    const { status, due_date, return_date } = req.body;
+    const id = parseId(req.params.id);
+    const status = req.body.status;
+    const dueDate = req.body.due_date ?? req.body.dueDate;
+    const returnDate = req.body.return_date ?? req.body.returnDate;
 
-    if (!status && !due_date && !return_date) {
-      throw buildError(400, 'Tidak ada data untuk diperbarui');
+    if (Number.isNaN(id)) {
+      throw buildError(400, "ID loan tidak valid");
     }
 
-    const hasDeletedAt = await ensureLoansDeletedAt();
+    if (!status && !dueDate && !returnDate) {
+      throw buildError(400, "Tidak ada data untuk diperbarui");
+    }
+
+    if (status !== undefined && !isValidLoanStatus(status)) {
+      throw buildError(400, "Status loan tidak valid");
+    }
 
     const updatedLoan = await transaction(async (client) => {
-      const loanQuery = `SELECT id, user_id, item_id, status, due_date, return_date FROM loans WHERE id = $1${
-        hasDeletedAt ? ' AND deleted_at IS NULL' : ''
-      } FOR UPDATE`;
-      const loanResult = await client.query<LoanRow>(loanQuery, [id]);
+      const loanResult = await client.query<LoanRow>(
+        `
+        SELECT id, user_id, item_id, status, due_date, return_date
+        FROM loans
+        WHERE id = $1
+          AND deleted_at IS NULL
+        FOR UPDATE
+        `,
+        [id]
+      );
 
       if (loanResult.rows.length === 0) {
-        throw buildError(404, 'Data peminjaman tidak ditemukan');
+        throw buildError(404, "Data peminjaman tidak ditemukan");
       }
 
       const loan = loanResult.rows[0];
-      const nextStatus = status ?? loan.status;
+      const nextStatus: LoanStatus = status ?? loan.status;
 
-      if (loan.status === 'Returned' && nextStatus !== 'Returned') {
-        throw buildError(400, 'Tidak bisa mengubah status Returned menjadi status lain');
+      if (loan.status === "Returned" && nextStatus !== "Returned") {
+        throw buildError(400, "Tidak bisa mengubah status Returned menjadi status lain");
       }
 
-      const shouldReturn = loan.status !== 'Returned' && nextStatus === 'Returned';
-      const nextDueDate = due_date ?? loan.due_date;
+      const shouldReturn = loan.status !== "Returned" && nextStatus === "Returned";
+
+      const nextDueDate = dueDate ?? loan.due_date;
       const nextReturnDate =
-        nextStatus === 'Returned' ? return_date ?? loan.return_date ?? new Date().toISOString() : return_date ?? loan.return_date;
+        nextStatus === "Returned"
+          ? returnDate ?? loan.return_date ?? new Date().toISOString()
+          : returnDate ?? loan.return_date;
 
       if (shouldReturn) {
-        const itemResult = await client.query(
-          `SELECT id, total_stock, available_stock FROM items WHERE id = $1 FOR UPDATE`,
+        const itemResult = await client.query<ItemStockRow>(
+          `
+          SELECT id, total_stock, available_stock
+          FROM items
+          WHERE id = $1
+          FOR UPDATE
+          `,
           [loan.item_id]
         );
+
         if (itemResult.rows.length === 0) {
-          throw buildError(400, 'Item tidak ditemukan');
-        }
-        const item = itemResult.rows[0];
-        if (Number(item.available_stock) >= Number(item.total_stock)) {
-          throw buildError(400, 'Available stock sudah penuh');
+          throw buildError(400, "Item tidak ditemukan");
         }
 
-        await client.query(`UPDATE items SET available_stock = available_stock + 1 WHERE id = $1`, [
-          loan.item_id,
-        ]);
+        const item = itemResult.rows[0];
+
+        if (Number(item.available_stock) >= Number(item.total_stock)) {
+          throw buildError(400, "Available stock sudah penuh");
+        }
+
+        await client.query(
+          `
+          UPDATE items
+          SET available_stock = available_stock + 1
+          WHERE id = $1
+          `,
+          [loan.item_id]
+        );
       }
 
-      const updateResult = await client.query(
-        `UPDATE loans SET status = $1, due_date = $2, return_date = $3 WHERE id = $4 RETURNING *`,
+      const updateResult = await client.query<LoanRow>(
+        `
+        UPDATE loans
+        SET status = $1,
+            due_date = $2,
+            return_date = $3
+        WHERE id = $4
+          AND deleted_at IS NULL
+        RETURNING *
+        `,
         [nextStatus, nextDueDate, nextReturnDate, id]
       );
 
       return updateResult.rows[0];
     });
 
-    res.status(200).json({ success: true, message: 'Data peminjaman diperbarui', data: updatedLoan });
-  } catch (error: any) {
-    res
-      .status(error.status || 500)
-      .json({ success: false, message: error.message || 'Gagal memperbarui peminjaman' });
+    res.status(200).json({
+      success: true,
+      message: "Data peminjaman diperbarui",
+      data: updatedLoan,
+    });
+  } catch (error: unknown) {
+    res.status(getErrorStatus(error)).json({
+      success: false,
+      message: getErrorMessage(error) || "Gagal memperbarui peminjaman",
+    });
   }
 };
 
-// 5. UPDATE: Kembalikan alat (Return)
+// 5. UPDATE: Kembalikan alat
 export const returnItem = async (req: Request, res: Response): Promise<void> => {
   try {
-    const requester = req.user;
-    if (!requester) {
-      throw buildError(401, 'Unauthorized');
+    const requester = ensureAuthenticated(req);
+    const id = parseId(req.params.id);
+
+    if (Number.isNaN(id)) {
+      throw buildError(400, "ID loan tidak valid");
     }
 
-    const { id } = req.params;
-    const hasDeletedAt = await ensureLoansDeletedAt();
-
     await transaction(async (client) => {
-      const loanQuery = `SELECT id, user_id, item_id, status FROM loans WHERE id = $1${
-        hasDeletedAt ? ' AND deleted_at IS NULL' : ''
-      } FOR UPDATE`;
-      const loanResult = await client.query(loanQuery, [id]);
+      const loanResult = await client.query<LoanRow>(
+        `
+        SELECT id, user_id, item_id, status, due_date, return_date
+        FROM loans
+        WHERE id = $1
+          AND deleted_at IS NULL
+        FOR UPDATE
+        `,
+        [id]
+      );
+
       if (loanResult.rows.length === 0) {
-        throw buildError(404, 'Data peminjaman tidak ditemukan');
+        throw buildError(404, "Data peminjaman tidak ditemukan");
       }
 
       const loan = loanResult.rows[0];
-      if (requester.role === 'student' && Number(loan.user_id) !== requester.id) {
-        throw buildError(403, 'Tidak diizinkan mengembalikan loan ini');
+
+      if (requester.role === "student" && Number(loan.user_id) !== requester.id) {
+        throw buildError(403, "Tidak diizinkan mengembalikan loan ini");
       }
 
-      if (loan.status === 'Returned') {
-        throw buildError(400, 'Loan sudah dikembalikan');
+      if (loan.status === "Returned") {
+        throw buildError(400, "Loan sudah dikembalikan");
       }
 
-      const itemResult = await client.query(
-        `SELECT id, total_stock, available_stock FROM items WHERE id = $1 FOR UPDATE`,
+      const itemResult = await client.query<ItemStockRow>(
+        `
+        SELECT id, total_stock, available_stock
+        FROM items
+        WHERE id = $1
+        FOR UPDATE
+        `,
         [loan.item_id]
       );
+
       if (itemResult.rows.length === 0) {
-        throw buildError(400, 'Item tidak ditemukan');
+        throw buildError(400, "Item tidak ditemukan");
       }
 
       const item = itemResult.rows[0];
+
       if (Number(item.available_stock) >= Number(item.total_stock)) {
-        throw buildError(400, 'Available stock sudah penuh');
+        throw buildError(400, "Available stock sudah penuh");
       }
 
       await client.query(
-        `UPDATE loans SET status = 'Returned', return_date = COALESCE(return_date, CURRENT_TIMESTAMP) WHERE id = $1`,
+        `
+        UPDATE loans
+        SET status = 'Returned',
+            return_date = COALESCE(return_date, CURRENT_TIMESTAMP)
+        WHERE id = $1
+          AND deleted_at IS NULL
+        `,
         [id]
       );
-      await client.query(`UPDATE items SET available_stock = available_stock + 1 WHERE id = $1`, [loan.item_id]);
+
+      await client.query(
+        `
+        UPDATE items
+        SET available_stock = available_stock + 1
+        WHERE id = $1
+        `,
+        [loan.item_id]
+      );
     });
 
-    res.status(200).json({ success: true, message: 'Alat berhasil dikembalikan' });
-  } catch (error: any) {
-    res
-      .status(error.status || 500)
-      .json({ success: false, message: error.message || 'Gagal proses pengembalian' });
+    res.status(200).json({
+      success: true,
+      message: "Alat berhasil dikembalikan",
+    });
+  } catch (error: unknown) {
+    res.status(getErrorStatus(error)).json({
+      success: false,
+      message: getErrorMessage(error) || "Gagal proses pengembalian",
+    });
   }
 };
 
-// 6. DELETE: Soft delete loan (admin)
+// 6. DELETE: Soft delete loan, admin only dari route
 export const deleteLoan = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
-    const hasDeletedAt = await ensureLoansDeletedAt();
+    const id = parseId(req.params.id);
 
-    if (hasDeletedAt) {
-      const result = await query(`UPDATE loans SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`, [id]);
-      if (result.rows.length === 0) {
-        res.status(404).json({ success: false, message: 'Data peminjaman tidak ditemukan' });
-        return;
-      }
-      res.status(200).json({ success: true, message: 'Loan dipindahkan ke trash', data: result.rows[0] });
-      return;
+    if (Number.isNaN(id)) {
+      throw buildError(400, "ID loan tidak valid");
     }
 
-    const result = await query(`DELETE FROM loans WHERE id = $1 RETURNING *`, [id]);
+    const result = await query<LoanRow>(
+      `
+      UPDATE loans
+      SET deleted_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+        AND deleted_at IS NULL
+      RETURNING *
+      `,
+      [id]
+    );
+
     if (result.rows.length === 0) {
-      res.status(404).json({ success: false, message: 'Data peminjaman tidak ditemukan' });
+      res.status(404).json({
+        success: false,
+        message: "Data peminjaman tidak ditemukan",
+      });
       return;
     }
-    res.status(200).json({ success: true, message: 'Loan berhasil dihapus', data: result.rows[0] });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message || 'Gagal menghapus loan' });
+
+    res.status(200).json({
+      success: true,
+      message: "Loan dipindahkan ke trash",
+      data: result.rows[0],
+    });
+  } catch (error: unknown) {
+    res.status(getErrorStatus(error)).json({
+      success: false,
+      message: getErrorMessage(error) || "Gagal menghapus loan",
+    });
   }
 };

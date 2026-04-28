@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { Navigate } from "react-router";
 import axios from "axios";
 import { Loader2 } from "lucide-react";
@@ -14,6 +14,7 @@ type LoginSuccessResponse = {
 type LoginErrorResponse = {
   success: false;
   message?: string;
+  error?: string;
 };
 
 type LoginResponse = LoginSuccessResponse | LoginErrorResponse;
@@ -22,23 +23,45 @@ const LOGIN_URL = import.meta.env.VITE_AUTH_LOGIN_URL ?? "http://localhost:5555/
 
 const getErrorMessage = (error: unknown) => {
   if (axios.isAxiosError(error)) {
-    const data = error.response?.data as { message?: string } | undefined;
-    return data?.message ?? error.message ?? "Login failed. Please try again.";
+    const data = error.response?.data as { message?: string; error?: string } | undefined;
+
+    return data?.message ?? data?.error ?? error.message ?? "Login failed. Please try again.";
   }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
   return "Login failed. Please try again.";
 };
 
-const isValidUser = (user: AuthUser | undefined): user is AuthUser =>
-  Boolean(
-    user &&
-      typeof user.full_name === "string" &&
-      typeof user.email === "string" &&
-      (typeof user.id === "string" || typeof user.id === "number") &&
-      USER_ROLES.includes(user.role)
-  );
+const isValidUser = (user: unknown): user is AuthUser => {
+  if (!user || typeof user !== "object") return false;
 
-const isLoginSuccess = (data: LoginResponse): data is LoginSuccessResponse =>
-  data.success === true && typeof data.token === "string" && isValidUser(data.user);
+  const candidate = user as Partial<AuthUser>;
+
+  return Boolean(
+    (typeof candidate.id === "string" || typeof candidate.id === "number") &&
+      typeof candidate.full_name === "string" &&
+      candidate.full_name.trim().length > 0 &&
+      typeof candidate.email === "string" &&
+      candidate.email.trim().length > 0 &&
+      USER_ROLES.includes(candidate.role as AuthUser["role"])
+  );
+};
+
+const isLoginSuccess = (data: unknown): data is LoginSuccessResponse => {
+  if (!data || typeof data !== "object") return false;
+
+  const candidate = data as Partial<LoginSuccessResponse>;
+
+  return Boolean(
+    candidate.success === true &&
+      typeof candidate.token === "string" &&
+      candidate.token.trim().length > 0 &&
+      isValidUser(candidate.user)
+  );
+};
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -51,17 +74,34 @@ export default function LoginPage() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    const normalizedEmail = email.trim();
+
+    if (!normalizedEmail || !password) {
+      setError("Email dan password wajib diisi.");
+      return;
+    }
+
     setError(null);
     setLoading(true);
+
     try {
-      const response = await axios.post<LoginResponse>(LOGIN_URL, { email, password });
-      if (isLoginSuccess(response.data)) {
-        login({ token: response.data.token, user: response.data.user });
+      const response = await axios.post<LoginResponse>(LOGIN_URL, {
+        email: normalizedEmail,
+        password,
+      });
+
+      if (!isLoginSuccess(response.data)) {
+        setError(response.data?.message ?? "Login failed. Please check your credentials.");
         return;
       }
-      setError("Login failed. Please check your credentials.");
+
+      login({
+        token: response.data.token,
+        user: response.data.user,
+      });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -76,6 +116,7 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold text-slate-800">Lab Inventory Login</h1>
           <p className="text-sm text-slate-500">Sign in to manage laboratory assets securely.</p>
         </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <label htmlFor="email" className="text-sm font-medium text-slate-700">
@@ -87,11 +128,13 @@ export default function LoginPage() {
               required
               autoComplete="email"
               value={email}
+              disabled={loading}
               onChange={(event) => setEmail(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:bg-slate-100"
               placeholder="you@example.com"
             />
           </div>
+
           <div className="space-y-2">
             <label htmlFor="password" className="text-sm font-medium text-slate-700">
               Password
@@ -102,16 +145,19 @@ export default function LoginPage() {
               required
               autoComplete="current-password"
               value={password}
+              disabled={loading}
               onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:bg-slate-100"
               placeholder="••••••••"
             />
           </div>
+
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
               {error}
             </div>
           )}
+
           <button
             type="submit"
             disabled={loading}

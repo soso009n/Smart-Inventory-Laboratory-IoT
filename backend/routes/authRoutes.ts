@@ -1,10 +1,10 @@
-import { Router } from 'express';
-import { register, login } from '../controllers/authController';
+import { Router } from "express";
+import { register, login } from "../controllers/authController";
 
 const router = Router();
 
-// Endpoint Autentikasi
-router.post('/register', register); // Mendaftar akun
-router.post('/login', login);       // Masuk ke aplikasi
+// Public authentication endpoints
+router.post("/login", login);
+router.post("/register", register);
 
 export default router;
