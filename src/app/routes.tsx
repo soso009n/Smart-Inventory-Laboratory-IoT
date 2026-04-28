@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import RootLayout from "./layouts/RootLayout";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -6,6 +6,8 @@ import InventoryPage from "./pages/InventoryPage";
 import LoansPage from "./pages/LoansPage";
 import UsersPage from "./pages/UsersPage";
 import TrashPage from "./pages/TrashPage";
+import UnauthorizedPage from "./pages/UnauthorizedPage";
+import ProtectedRoute from "../components/ProtectedRoute";
 
 export const router = createBrowserRouter([
   {
@@ -14,13 +16,33 @@ export const router = createBrowserRouter([
   },
   {
     path: "/",
-    Component: RootLayout,
+    element: (
+      <ProtectedRoute>
+        <RootLayout />
+      </ProtectedRoute>
+    ),
     children: [
-      { index: true, Component: DashboardPage },
+      { index: true, element: <Navigate to="/dashboard" replace /> },
+      { path: "dashboard", Component: DashboardPage },
       { path: "inventory", Component: InventoryPage },
       { path: "loans", Component: LoansPage },
-      { path: "users", Component: UsersPage },
-      { path: "trash", Component: TrashPage },
+      { path: "unauthorized", Component: UnauthorizedPage },
+      {
+        path: "users",
+        element: (
+          <ProtectedRoute allowedRoles={["admin"]}>
+            <UsersPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "trash",
+        element: (
+          <ProtectedRoute allowedRoles={["admin"]}>
+            <TrashPage />
+          </ProtectedRoute>
+        ),
+      },
     ],
   },
 ]);

@@ -1,97 +1,132 @@
-import { useEffect, useState } from "react";
-import { Package, CheckCircle, FileText, AlertTriangle, Loader2 } from "lucide-react";
-import Card from "../components/Card";
+import { useState } from "react";
+import { Navigate } from "react-router";
 import axios from "axios";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { Loader2 } from "lucide-react";
+import { useAuth, USER_ROLES } from "../../contexts/AuthContext";
+import type { AuthUser } from "../../contexts/AuthContext";
 
-export default function DashboardPage() {
-  const [recentLoans, setRecentLoans] = useState([]);
-  const [stats, setStats] = useState({ totalItems: 0, available: 0, activeLoans: 0 });
-  const [loading, setLoading] = useState(true);
+type LoginSuccessResponse = {
+  success: true;
+  token: string;
+  user: AuthUser;
+};
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
+type LoginErrorResponse = {
+  success: false;
+  message?: string;
+};
 
-  const fetchDashboardData = async () => {
+type LoginResponse = LoginSuccessResponse | LoginErrorResponse;
+
+const LOGIN_URL = import.meta.env.VITE_AUTH_LOGIN_URL ?? "http://localhost:5555/api/auth/login";
+
+const getErrorMessage = (error: unknown) => {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as { message?: string } | undefined;
+    return data?.message ?? error.message ?? "Login failed. Please try again.";
+  }
+  return "Login failed. Please try again.";
+};
+
+const isValidUser = (user: AuthUser | undefined): user is AuthUser =>
+  Boolean(
+    user &&
+      typeof user.full_name === "string" &&
+      typeof user.email === "string" &&
+      (typeof user.id === "string" || typeof user.id === "number") &&
+      USER_ROLES.includes(user.role)
+  );
+
+const isLoginSuccess = (data: LoginResponse): data is LoginSuccessResponse =>
+  data.success === true && typeof data.token === "string" && isValidUser(data.user);
+
+export default function LoginPage() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const { login, isAuthenticated } = useAuth();
+
+  if (isAuthenticated()) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setLoading(true);
     try {
-      // Ambil data peminjaman dari JOIN 3 Tabel di Backend
-      const loanRes = await axios.get("http://localhost:5555/api/loans");
-      setRecentLoans(loanRes.data.data.slice(0, 5)); // Ambil 5 data terakhir
-
-      // Ambil data inventory untuk stats
-      const invRes = await axios.get("http://localhost:5555/api/inventory");
-      const items = invRes.data.data;
-      
-      setStats({
-        totalItems: items.length,
-        available: items.filter((i: any) => i.status === 'Available').length,
-        activeLoans: loanRes.data.data.filter((l: any) => l.status_pinjaman === 'Borrowed').length
-      });
+      const response = await axios.post<LoginResponse>(LOGIN_URL, { email, password });
+      if (isLoginSuccess(response.data)) {
+        login({ token: response.data.token, user: response.data.user });
+        return;
+      }
+      setError("Login failed. Please check your credentials.");
     } catch (err) {
-      console.error("Gagal ambil data dashboard", err);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center h-96 gap-4">
-      <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
-      <p className="text-slate-500 font-medium">Sinkronisasi Data Neon...</p>
-    </div>
-  );
-
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-800">Dashboard Overview</h1>
-        <p className="text-slate-500">Real-time status dari Database Neon Cloud</p>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card title="Total Items" value={stats.totalItems.toString()} icon={Package} color="blue" />
-        <Card title="Available Items" value={stats.available.toString()} icon={CheckCircle} color="green" />
-        <Card title="Active Loans" value={stats.activeLoans.toString()} icon={FileText} color="amber" />
-        <Card title="System Status" value="Online" icon={CheckCircle} color="blue" />
-      </div>
-
-      {/* Recent Activity Table (Hasil JOIN 3 Tabel) */}
-      <div className="bg-white border-2 border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="p-6 border-b-2 border-slate-100 bg-slate-50/50">
-          <h2 className="font-bold text-slate-700">Aktivitas Peminjaman Terakhir (Data JOIN)</h2>
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-6 py-10">
+      <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-lg p-8 space-y-6">
+        <div className="space-y-2 text-center">
+          <h1 className="text-2xl font-bold text-slate-800">Lab Inventory Login</h1>
+          <p className="text-sm text-slate-500">Sign in to manage laboratory assets securely.</p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-slate-600">
-            <thead className="bg-slate-100/80 font-bold text-slate-700 uppercase text-xs">
-              <tr>
-                <th className="text-left px-6 py-4">Praktikan</th>
-                <th className="text-left px-6 py-4">Nama Alat</th>
-                <th className="text-left px-6 py-4">Kategori</th>
-                <th className="text-left px-6 py-4">Tenggat</th>
-                <th className="text-left px-6 py-4">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {recentLoans.map((loan: any) => (
-                <tr key={loan.id_peminjaman} className="hover:bg-blue-50/30 transition-colors">
-                  <td className="px-6 py-4 font-medium text-slate-800">{loan.nama_praktikan}</td>
-                  <td className="px-6 py-4">{loan.nama_alat}</td>
-                  <td className="px-6 py-4"><span className="px-2 py-1 bg-slate-100 rounded text-[10px]">{loan.kategori}</span></td>
-                  <td className="px-6 py-4 text-slate-500">{new Date(loan.tenggat_waktu).toLocaleDateString('id-ID')}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase border ${
-                      loan.status_pinjaman === "Borrowed" ? "bg-amber-50 text-amber-600 border-amber-200" : "bg-green-50 text-green-600 border-green-200"
-                    }`}>
-                      {loan.status_pinjaman}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="email" className="text-sm font-medium text-slate-700">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              required
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              placeholder="you@example.com"
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="password" className="text-sm font-medium text-slate-700">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              required
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              placeholder="••••••••"
+            />
+          </div>
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
+              {error}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Signing in...
+              </>
+            ) : (
+              "Sign In"
+            )}
+          </button>
+        </form>
       </div>
     </div>
   );

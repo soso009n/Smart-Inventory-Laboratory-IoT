@@ -1,14 +1,21 @@
 import { useState } from "react";
 import { Search, Bell, User, LogOut } from "lucide-react";
 import { useNavigate } from "react-router";
+import { useAuth } from "../../contexts/AuthContext";
 
 export default function Navbar() {
   const [showDropdown, setShowDropdown] = useState(false);
   const navigate = useNavigate();
-  const currentUser = { name: "Admin User", role: "Admin", email: "admin@lab.edu" };
+  const { user, logout } = useAuth();
+  const currentUser = {
+    name: user?.full_name ?? "User",
+    role: user?.role === "admin" ? "Admin" : "Student",
+    email: user?.email ?? "unknown",
+  };
 
   const handleLogout = () => {
-    navigate("/login");
+    logout();
+    navigate("/login", { replace: true });
   };
 
   return (
