@@ -23,7 +23,7 @@ export default function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const visibleItems = navItems.filter(
-    (item) => !item.roles || (user?.role ? item.roles.includes(user.role) : false)
+    (item) => !item.roles || item.roles.includes(user?.role ?? "")
   );
 
   const handleLogout = () => {

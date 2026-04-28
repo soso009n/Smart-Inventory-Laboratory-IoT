@@ -12,7 +12,7 @@ type LoginResponse = {
   message?: string;
 };
 
-const LOGIN_URL = "http://localhost:5555/api/auth/login";
+const LOGIN_URL = import.meta.env.VITE_AUTH_LOGIN_URL ?? "http://localhost:5555/api/auth/login";
 
 const getErrorMessage = (error: unknown) => {
   if (axios.isAxiosError(error)) {
