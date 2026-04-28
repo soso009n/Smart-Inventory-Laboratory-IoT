@@ -76,27 +76,26 @@ export default function LoansPage() {
     [token]
   );
 
-  const mapLoan = (loan: LoanApiItem): Loan => {
-    const dueDate = loan.due_date?.slice(0, 10) ?? "";
-    const borrowDate = loan.borrow_date?.slice(0, 10) ?? "";
-    const isOverdue = loan.status === "Borrowed" && dueDate && new Date(dueDate) < today;
-    return {
-      id: loan.id,
-      studentName: loan.user_full_name ?? `User #${loan.user_id}`,
-      itemName: loan.item_name ?? `Item #${loan.item_id}`,
-      borrowDate,
-      dueDate,
-      status: isOverdue ? "Overdue" : (loan.status as Loan["status"]),
-    };
-  };
-
   const fetchLoans = useCallback(async () => {
     if (!token) return;
     try {
       setLoading(true);
       const res = await axios.get(`${API_BASE_URL}/loans`, { headers: authHeaders });
       const data = Array.isArray(res.data?.data) ? res.data.data : [];
-      setLoans(data.map(mapLoan));
+      const mapped = (data as LoanApiItem[]).map((loan) => {
+        const dueDate = loan.due_date?.slice(0, 10) ?? "";
+        const borrowDate = loan.borrow_date?.slice(0, 10) ?? "";
+        const isOverdue = loan.status === "Borrowed" && dueDate && new Date(dueDate) < today;
+        return {
+          id: loan.id,
+          studentName: loan.user_full_name ?? `User #${loan.user_id}`,
+          itemName: loan.item_name ?? `Item #${loan.item_id}`,
+          borrowDate,
+          dueDate,
+          status: isOverdue ? "Overdue" : (loan.status as Loan["status"]),
+        };
+      });
+      setLoans(mapped);
     } catch (error) {
       console.error("Gagal mengambil data loans:", error);
       setLoans([]);

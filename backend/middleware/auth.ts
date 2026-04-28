@@ -39,8 +39,12 @@ export const requireAuth = async (req: Request, _res: Response, next: NextFuncti
     };
 
     const userId = Number(decoded?.id);
+    const role = decoded?.role;
     if (!userId || Number.isNaN(userId)) {
       throw buildError(401, 'Invalid token payload');
+    }
+    if (role !== 'admin' && role !== 'student') {
+      throw buildError(401, 'Invalid token role');
     }
 
     const userResult = await query<{
