@@ -86,6 +86,7 @@ app.get('/api', (_req: Request, res: Response) => {
 // Register routes (uncomment setelah routes dibuat)
 app.use('/api/auth', authRoutes);
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/items', inventoryRoutes);
 app.use('/api/loans', loanRoutes);
 app.use('/api/users', userRoutes);
 

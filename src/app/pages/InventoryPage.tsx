@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Search, Edit2, Trash2, Filter, ChevronLeft, ChevronRight } from "lucide-react";
+import axios from "axios";
 import Badge from "../components/Badge";
 import GlassFormModal, { GlassField } from "../components/GlassFormModal";
 import ConfirmModal from "../components/ConfirmModal";
+import { useAuth } from "../../contexts/AuthContext";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5555/api";
 
 interface InventoryItem {
   id: number;
@@ -16,16 +20,15 @@ interface InventoryItem {
 
 type InventoryForm = Omit<InventoryItem, "id" | "deleted">;
 
-const mockInventory: InventoryItem[] = [
-  { id: 1, name: "Arduino Uno R3", category: "Microcontroller", status: "Available", totalStock: 25, availableStock: 18, deleted: false },
-  { id: 2, name: "Raspberry Pi 4 Model B", category: "Single Board Computer", status: "Available", totalStock: 15, availableStock: 8, deleted: false },
-  { id: 3, name: "ESP32 Dev Board", category: "Microcontroller", status: "Available", totalStock: 30, availableStock: 22, deleted: false },
-  { id: 4, name: "DHT22 Temperature Sensor", category: "Sensor", status: "Available", totalStock: 40, availableStock: 35, deleted: false },
-  { id: 5, name: "HC-SR04 Ultrasonic Sensor", category: "Sensor", status: "In Use", totalStock: 35, availableStock: 12, deleted: false },
-  { id: 6, name: "OLED Display 128x64", category: "Display", status: "Available", totalStock: 20, availableStock: 15, deleted: false },
-  { id: 7, name: "Servo Motor SG90", category: "Actuator", status: "Maintenance", totalStock: 18, availableStock: 0, deleted: false },
-  { id: 8, name: "NodeMCU ESP8266", category: "Microcontroller", status: "Available", totalStock: 22, availableStock: 19, deleted: false },
-];
+interface InventoryApiItem {
+  id: number;
+  item_name: string;
+  category: string;
+  status: "Available" | "In Use" | "Maintenance";
+  total_stock: number;
+  available_stock: number;
+  deleted_at?: string | null;
+}
 
 const emptyForm: InventoryForm = {
   name: "",
@@ -53,7 +56,9 @@ const inventoryFields: GlassField<InventoryForm>[] = [
 ];
 
 export default function InventoryPage() {
-  const [items, setItems] = useState<InventoryItem[]>(mockInventory);
+  const { token, user } = useAuth();
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -63,6 +68,46 @@ export default function InventoryPage() {
   const [currentItem, setCurrentItem] = useState<InventoryItem | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
+
+  const isAdmin = user?.role === "admin";
+
+  const authHeaders = useMemo(
+    () => ({
+      Authorization: token ? `Bearer ${token}` : "",
+    }),
+    [token]
+  );
+
+  const mapApiItem = (item: InventoryApiItem): InventoryItem => ({
+    id: item.id,
+    name: item.item_name,
+    category: item.category,
+    status: item.status ?? "Available",
+    totalStock: Number(item.total_stock),
+    availableStock: Number(item.available_stock),
+    deleted: Boolean(item.deleted_at),
+  });
+
+  const fetchItems = useCallback(async () => {
+    if (!token) return;
+    try {
+      setLoading(true);
+      const res = await axios.get(`${API_BASE_URL}/inventory`, {
+        headers: authHeaders,
+      });
+      const data = Array.isArray(res.data?.data) ? res.data.data : [];
+      setItems(data.map(mapApiItem));
+    } catch (error) {
+      console.error("Gagal mengambil data inventory:", error);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [authHeaders, token]);
+
+  useEffect(() => {
+    fetchItems();
+  }, [fetchItems]);
 
   const categories = ["All", ...Array.from(new Set(items.map((item) => item.category)))];
 
@@ -81,20 +126,51 @@ export default function InventoryPage() {
     currentPage * itemsPerPage
   );
 
-  const handleAdd = (data: InventoryForm) => {
-    setItems([...items, { id: Date.now(), ...data, deleted: false }]);
-  };
-
-  const handleEdit = (data: InventoryForm) => {
-    if (currentItem) {
-      setItems(items.map((i) => (i.id === currentItem.id ? { ...i, ...data } : i)));
+  const handleAdd = async (data: InventoryForm) => {
+    if (!token) return;
+    try {
+      const payload = {
+        item_name: data.name,
+        category: data.category,
+        status: data.status,
+        total_stock: data.totalStock,
+        available_stock: data.availableStock,
+      };
+      await axios.post(`${API_BASE_URL}/inventory`, payload, { headers: authHeaders });
+      await fetchItems();
+    } catch (error: any) {
+      console.error("Gagal menambah inventory:", error);
+      alert(error.response?.data?.message || "Gagal menambah inventory");
     }
   };
 
-  const handleDeleteItem = () => {
-    if (currentItem) {
-      setItems(items.map((i) => (i.id === currentItem.id ? { ...i, deleted: true } : i)));
+  const handleEdit = async (data: InventoryForm) => {
+    if (!token || !currentItem) return;
+    try {
+      const payload = {
+        item_name: data.name,
+        category: data.category,
+        status: data.status,
+        total_stock: data.totalStock,
+        available_stock: data.availableStock,
+      };
+      await axios.put(`${API_BASE_URL}/inventory/${currentItem.id}`, payload, { headers: authHeaders });
+      await fetchItems();
+    } catch (error: any) {
+      console.error("Gagal update inventory:", error);
+      alert(error.response?.data?.message || "Gagal update inventory");
+    }
+  };
+
+  const handleDeleteItem = async () => {
+    if (!token || !currentItem) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/inventory/${currentItem.id}`, { headers: authHeaders });
+      await fetchItems();
       setCurrentItem(null);
+    } catch (error: any) {
+      console.error("Gagal menghapus inventory:", error);
+      alert(error.response?.data?.message || "Gagal menghapus inventory");
     }
   };
 
@@ -125,13 +201,15 @@ export default function InventoryPage() {
           <h1 className="text-3xl mb-2">Inventory Management</h1>
           <p className="text-muted-foreground">Manage laboratory equipment and components</p>
         </div>
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="flex items-center gap-2 bg-accent text-accent-foreground px-5 py-2.5 rounded-lg hover:bg-accent/90 transition-all shadow-md hover:shadow-lg"
-        >
-          <Plus className="w-5 h-5" />
-          Add Item
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="flex items-center gap-2 bg-accent text-accent-foreground px-5 py-2.5 rounded-lg hover:bg-accent/90 transition-all shadow-md hover:shadow-lg"
+          >
+            <Plus className="w-5 h-5" />
+            Add Item
+          </button>
+        )}
       </div>
 
       <div className="bg-card border-2 border-border rounded-lg shadow-sm">
@@ -185,43 +263,53 @@ export default function InventoryPage() {
                 <th className="text-left px-6 py-3 text-sm">Status</th>
                 <th className="text-left px-6 py-3 text-sm">Total Stock</th>
                 <th className="text-left px-6 py-3 text-sm">Available Stock</th>
-                <th className="text-left px-6 py-3 text-sm">Actions</th>
+                {isAdmin && <th className="text-left px-6 py-3 text-sm">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {paginatedItems.map((item) => (
-                <tr key={item.id} className="hover:bg-muted/50 transition-colors">
-                  <td className="px-6 py-4">{item.name}</td>
-                  <td className="px-6 py-4 text-muted-foreground">{item.category}</td>
-                  <td className="px-6 py-4">
-                    <Badge
-                      variant={
-                        item.status === "Available" ? "success" : item.status === "In Use" ? "info" : "warning"
-                      }
-                    >
-                      {item.status}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4">{item.totalStock}</td>
-                  <td className="px-6 py-4">{item.availableStock}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => openEditModal(item)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => openDeleteModal(item)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+              {loading ? (
+                <tr>
+                  <td colSpan={isAdmin ? 6 : 5} className="px-6 py-6 text-center text-muted-foreground">
+                    Memuat data inventory...
                   </td>
                 </tr>
-              ))}
+              ) : (
+                paginatedItems.map((item) => (
+                  <tr key={item.id} className="hover:bg-muted/50 transition-colors">
+                    <td className="px-6 py-4">{item.name}</td>
+                    <td className="px-6 py-4 text-muted-foreground">{item.category}</td>
+                    <td className="px-6 py-4">
+                      <Badge
+                        variant={
+                          item.status === "Available" ? "success" : item.status === "In Use" ? "info" : "warning"
+                        }
+                      >
+                        {item.status}
+                      </Badge>
+                    </td>
+                    <td className="px-6 py-4">{item.totalStock}</td>
+                    <td className="px-6 py-4">{item.availableStock}</td>
+                    {isAdmin && (
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openEditModal(item)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => openDeleteModal(item)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -252,40 +340,46 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <GlassFormModal<InventoryForm>
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        mode="create"
-        title="Tambah Inventory"
-        fields={inventoryFields}
-        initial={emptyForm}
-        onSubmit={handleAdd}
-      />
+      {isAdmin && (
+        <GlassFormModal<InventoryForm>
+          isOpen={isAddModalOpen}
+          onClose={() => setIsAddModalOpen(false)}
+          mode="create"
+          title="Tambah Inventory"
+          fields={inventoryFields}
+          initial={emptyForm}
+          onSubmit={handleAdd}
+        />
+      )}
 
-      <GlassFormModal<InventoryForm>
-        isOpen={isEditModalOpen}
-        onClose={() => {
-          setIsEditModalOpen(false);
-          setCurrentItem(null);
-        }}
-        mode="edit"
-        title="Edit Inventory"
-        fields={inventoryFields}
-        initial={currentFormData}
-        original={currentItem ? currentFormData : null}
-        onSubmit={handleEdit}
-      />
+      {isAdmin && (
+        <GlassFormModal<InventoryForm>
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setCurrentItem(null);
+          }}
+          mode="edit"
+          title="Edit Inventory"
+          fields={inventoryFields}
+          initial={currentFormData}
+          original={currentItem ? currentFormData : null}
+          onSubmit={handleEdit}
+        />
+      )}
 
-      <ConfirmModal
-        isOpen={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalOpen(false)}
-        onConfirm={handleDeleteItem}
-        title="Pindahkan ke Trash"
-        message="Yakin ingin memindahkan item ini ke trash? Data masih bisa dipulihkan dari halaman Trash."
-        itemName={currentItem?.name}
-        confirmLabel="Pindahkan ke Trash"
-        successTitle="Item dipindahkan ke trash"
-      />
+      {isAdmin && (
+        <ConfirmModal
+          isOpen={isDeleteModalOpen}
+          onClose={() => setIsDeleteModalOpen(false)}
+          onConfirm={handleDeleteItem}
+          title="Pindahkan ke Trash"
+          message="Yakin ingin memindahkan item ini ke trash? Data masih bisa dipulihkan dari halaman Trash."
+          itemName={currentItem?.name}
+          confirmLabel="Pindahkan ke Trash"
+          successTitle="Item dipindahkan ke trash"
+        />
+      )}
 
     </div>
   );
