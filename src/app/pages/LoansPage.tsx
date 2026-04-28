@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Search, Filter, Undo2 } from "lucide-react";
 import axios from "axios";
 import Badge from "../components/Badge";
@@ -43,6 +43,13 @@ type InventoryOption = {
   status: string;
 };
 
+type InventoryApiItem = {
+  id: number;
+  item_name: string;
+  available_stock: number;
+  status: string;
+};
+
 type StudentOption = {
   id: number;
   full_name: string;
@@ -83,7 +90,7 @@ export default function LoansPage() {
     };
   };
 
-  const fetchLoans = async () => {
+  const fetchLoans = useCallback(async () => {
     if (!token) return;
     try {
       setLoading(true);
@@ -96,14 +103,14 @@ export default function LoansPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [authHeaders, token, today]);
 
-  const fetchInventory = async () => {
+  const fetchInventory = useCallback(async () => {
     if (!token) return;
     try {
       const res = await axios.get(`${API_BASE_URL}/inventory`, { headers: authHeaders });
       const data = Array.isArray(res.data?.data) ? res.data.data : [];
-      const options = data.map((item: any) => ({
+      const options = (data as InventoryApiItem[]).map((item) => ({
         id: item.id,
         name: item.item_name,
         available: Number(item.available_stock),
@@ -114,9 +121,9 @@ export default function LoansPage() {
       console.error("Gagal mengambil inventory untuk loan:", error);
       setInventoryOptions([]);
     }
-  };
+  }, [authHeaders, token]);
 
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     if (!token || !isAdmin) return;
     try {
       const res = await axios.get(`${API_BASE_URL}/users`, { headers: authHeaders });
@@ -126,13 +133,13 @@ export default function LoansPage() {
       console.error("Gagal mengambil data user:", error);
       setStudents([]);
     }
-  };
+  }, [authHeaders, isAdmin, token]);
 
   useEffect(() => {
     fetchLoans();
     fetchInventory();
     fetchStudents();
-  }, [authHeaders, isAdmin]);
+  }, [fetchLoans, fetchInventory, fetchStudents]);
 
   const loanFields: GlassField<LoanForm>[] = useMemo(() => {
     const itemOptions = inventoryOptions

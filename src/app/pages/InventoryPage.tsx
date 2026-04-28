@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Search, Edit2, Trash2, Filter, ChevronLeft, ChevronRight } from "lucide-react";
 import axios from "axios";
 import Badge from "../components/Badge";
@@ -88,7 +88,7 @@ export default function InventoryPage() {
     deleted: Boolean(item.deleted_at),
   });
 
-  const fetchItems = async () => {
+  const fetchItems = useCallback(async () => {
     if (!token) return;
     try {
       setLoading(true);
@@ -103,11 +103,11 @@ export default function InventoryPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [authHeaders, token]);
 
   useEffect(() => {
     fetchItems();
-  }, [authHeaders]);
+  }, [fetchItems]);
 
   const categories = ["All", ...Array.from(new Set(items.map((item) => item.category)))];
 
