@@ -107,7 +107,7 @@ export default function InventoryPage() {
 
   useEffect(() => {
     fetchItems();
-  }, [token]);
+  }, [authHeaders]);
 
   const categories = ["All", ...Array.from(new Set(items.map((item) => item.category)))];
 

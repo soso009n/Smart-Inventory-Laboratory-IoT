@@ -219,7 +219,7 @@ export const updateLoan = async (req: Request, res: Response): Promise<void> => 
     const hasDeletedAt = await ensureLoansDeletedAt();
 
     const updatedLoan = await transaction(async (client) => {
-      const loanQuery = `${'SELECT id, user_id, item_id, status, due_date, return_date FROM loans WHERE id = $1'}${
+      const loanQuery = `SELECT id, user_id, item_id, status, due_date, return_date FROM loans WHERE id = $1${
         hasDeletedAt ? ' AND deleted_at IS NULL' : ''
       } FOR UPDATE`;
       const loanResult = await client.query<LoanRow>(loanQuery, [id]);
@@ -286,7 +286,7 @@ export const returnItem = async (req: Request, res: Response): Promise<void> => 
     const hasDeletedAt = await ensureLoansDeletedAt();
 
     await transaction(async (client) => {
-      const loanQuery = `${'SELECT id, user_id, item_id, status FROM loans WHERE id = $1'}${
+      const loanQuery = `SELECT id, user_id, item_id, status FROM loans WHERE id = $1${
         hasDeletedAt ? ' AND deleted_at IS NULL' : ''
       } FOR UPDATE`;
       const loanResult = await client.query(loanQuery, [id]);

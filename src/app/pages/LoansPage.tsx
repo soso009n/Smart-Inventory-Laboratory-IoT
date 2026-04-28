@@ -60,6 +60,7 @@ export default function LoansPage() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const isAdmin = user?.role === "admin";
+  const today = useMemo(() => new Date(new Date().toDateString()), []);
 
   const authHeaders = useMemo(
     () => ({
@@ -71,8 +72,7 @@ export default function LoansPage() {
   const mapLoan = (loan: LoanApiItem): Loan => {
     const dueDate = loan.due_date?.slice(0, 10) ?? "";
     const borrowDate = loan.borrow_date?.slice(0, 10) ?? "";
-    const isOverdue =
-      loan.status === "Borrowed" && dueDate && new Date(dueDate) < new Date(new Date().toDateString());
+    const isOverdue = loan.status === "Borrowed" && dueDate && new Date(dueDate) < today;
     return {
       id: loan.id,
       studentName: loan.user_full_name ?? `User #${loan.user_id}`,
@@ -132,7 +132,7 @@ export default function LoansPage() {
     fetchLoans();
     fetchInventory();
     fetchStudents();
-  }, [token, isAdmin]);
+  }, [authHeaders, isAdmin]);
 
   const loanFields: GlassField<LoanForm>[] = useMemo(() => {
     const itemOptions = inventoryOptions

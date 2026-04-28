@@ -4,7 +4,10 @@ import jwt from 'jsonwebtoken';
 import { query } from '../config/db';
 
 // Mengambil kunci rahasia dari file .env
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_sementara';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET is not configured');
+}
 
 // 1. REGISTER: Buat Akun Baru (Admin / Praktikan)
 export const register = async (req: Request, res: Response): Promise<void> => {
