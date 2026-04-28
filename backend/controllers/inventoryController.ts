@@ -50,9 +50,15 @@ export const createItem = async (req: Request, res: Response): Promise<void> => 
 };
 
 // 2. READ: Ambil semua data (Yang belum di-soft delete)
-export const getAllItems = async (_req: Request, res: Response): Promise<void> => {
+export const getAllItems = async (req: Request, res: Response): Promise<void> => {
   try {
-    const result = await query(`SELECT * FROM items WHERE deleted_at IS NULL ORDER BY id DESC`);
+    const deletedQuery = req.query.deleted;
+    const onlyDeleted =
+      String(deletedQuery).toLowerCase() === 'true' || String(deletedQuery) === '1';
+    const sql = onlyDeleted
+      ? `SELECT * FROM items WHERE deleted_at IS NOT NULL ORDER BY id DESC`
+      : `SELECT * FROM items WHERE deleted_at IS NULL ORDER BY id DESC`;
+    const result = await query(sql);
     res.status(200).json({ success: true, data: result.rows });
   } catch (error: any) {
     res.status(500).json({ success: false, message: 'Gagal mengambil data', error: error.message });
@@ -164,5 +170,25 @@ export const restoreItem = async (req: Request, res: Response): Promise<void> =>
     res.status(200).json({ success: true, message: 'Item berhasil dipulihkan', data: result.rows[0] });
   } catch (error: any) {
     res.status(500).json({ success: false, message: 'Gagal memulihkan data', error: error.message });
+  }
+};
+
+// 7. DELETE PERMANENT: Hapus data permanen dari trash
+export const deleteItemPermanently = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const result = await query(
+      `DELETE FROM items WHERE id = $1 AND deleted_at IS NOT NULL RETURNING *`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ success: false, message: 'Item tidak ditemukan di trash' });
+      return;
+    }
+
+    res.status(200).json({ success: true, message: 'Item dihapus permanen', data: result.rows[0] });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Gagal menghapus data', error: error.message });
   }
 };
