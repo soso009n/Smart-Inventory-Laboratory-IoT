@@ -67,7 +67,7 @@ export default function LoansPage() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const isAdmin = user?.role === "admin";
-  const today = useMemo(() => new Date(new Date().toDateString()), []);
+  const todayString = useMemo(() => new Date().toLocaleDateString("en-CA"), []);
 
   const authHeaders = useMemo(
     () => ({
@@ -85,7 +85,7 @@ export default function LoansPage() {
       const mapped = (data as LoanApiItem[]).map((loan) => {
         const dueDate = loan.due_date?.slice(0, 10) ?? "";
         const borrowDate = loan.borrow_date?.slice(0, 10) ?? "";
-        const isOverdue = loan.status === "Borrowed" && dueDate && new Date(dueDate) < today;
+        const isOverdue = loan.status === "Borrowed" && dueDate && dueDate < todayString;
         return {
           id: loan.id,
           studentName: loan.user_full_name ?? `User #${loan.user_id}`,
@@ -102,7 +102,7 @@ export default function LoansPage() {
     } finally {
       setLoading(false);
     }
-  }, [authHeaders, token, today]);
+  }, [authHeaders, token, todayString]);
 
   const fetchInventory = useCallback(async () => {
     if (!token) return;

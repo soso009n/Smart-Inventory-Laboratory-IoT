@@ -20,10 +20,8 @@ export const createItem = async (req: Request, res: Response): Promise<void> => 
     const category = req.body.category;
     const status = req.body.status ?? 'Available';
     const totalStock = parseNumber(req.body.total_stock ?? req.body.totalStock);
-    const availableStock =
-      req.body.available_stock !== undefined || req.body.availableStock !== undefined
-        ? parseNumber(req.body.available_stock ?? req.body.availableStock)
-        : totalStock;
+    const availableStockRaw = req.body.available_stock ?? req.body.availableStock;
+    const availableStock = availableStockRaw === undefined ? totalStock : parseNumber(availableStockRaw);
 
     if (!item_name || !category || Number.isNaN(totalStock) || Number.isNaN(availableStock)) {
       buildErrorResponse(res, 400, 'Data item tidak lengkap atau tidak valid');
