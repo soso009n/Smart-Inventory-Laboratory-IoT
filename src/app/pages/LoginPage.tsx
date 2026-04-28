@@ -2,15 +2,21 @@ import { useState } from "react";
 import { Navigate } from "react-router";
 import axios from "axios";
 import { Loader2 } from "lucide-react";
-import { useAuth } from "../../contexts/AuthContext";
+import { useAuth, USER_ROLES } from "../../contexts/AuthContext";
 import type { AuthUser } from "../../contexts/AuthContext";
 
-type LoginResponse = {
-  success: boolean;
+type LoginSuccessResponse = {
+  success: true;
   token: string;
   user: AuthUser;
+};
+
+type LoginErrorResponse = {
+  success: false;
   message?: string;
 };
+
+type LoginResponse = LoginSuccessResponse | LoginErrorResponse;
 
 const LOGIN_URL = import.meta.env.VITE_AUTH_LOGIN_URL ?? "http://localhost:5555/api/auth/login";
 
@@ -21,6 +27,18 @@ const getErrorMessage = (error: unknown) => {
   }
   return "Login failed. Please try again.";
 };
+
+const isValidUser = (user: AuthUser | undefined): user is AuthUser =>
+  Boolean(
+    user &&
+      typeof user.full_name === "string" &&
+      typeof user.email === "string" &&
+      (typeof user.id === "string" || typeof user.id === "number") &&
+      USER_ROLES.includes(user.role)
+  );
+
+const isLoginSuccess = (data: LoginResponse): data is LoginSuccessResponse =>
+  data.success === true && typeof data.token === "string" && isValidUser(data.user);
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -39,7 +57,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const response = await axios.post<LoginResponse>(LOGIN_URL, { email, password });
-      if (response.data?.success && response.data.token && response.data.user) {
+      if (isLoginSuccess(response.data)) {
         login({ token: response.data.token, user: response.data.user });
         return;
       }

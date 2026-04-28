@@ -6,6 +6,7 @@ import InventoryPage from "./pages/InventoryPage";
 import LoansPage from "./pages/LoansPage";
 import UsersPage from "./pages/UsersPage";
 import TrashPage from "./pages/TrashPage";
+import UnauthorizedPage from "./pages/UnauthorizedPage";
 import ProtectedRoute from "../components/ProtectedRoute";
 
 export const router = createBrowserRouter([
@@ -16,7 +17,7 @@ export const router = createBrowserRouter([
   {
     path: "/",
     element: (
-      <ProtectedRoute allowedRoles={["admin", "student"]}>
+      <ProtectedRoute>
         <RootLayout />
       </ProtectedRoute>
     ),
@@ -25,6 +26,7 @@ export const router = createBrowserRouter([
       { path: "dashboard", Component: DashboardPage },
       { path: "inventory", Component: InventoryPage },
       { path: "loans", Component: LoansPage },
+      { path: "unauthorized", Component: UnauthorizedPage },
       {
         path: "users",
         element: (

@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 
-export type UserRole = "admin" | "student";
+export const USER_ROLES = ["admin", "student"] as const;
+export type UserRole = (typeof USER_ROLES)[number];
 
 export type AuthUser = {
   id: number | string;
@@ -27,7 +28,8 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const AUTH_STORAGE_KEY = "lab-iot-auth";
 
-const isUserRole = (role: unknown): role is UserRole => role === "admin" || role === "student";
+const isUserRole = (role: unknown): role is UserRole =>
+  typeof role === "string" && USER_ROLES.includes(role as UserRole);
 
 const readStoredAuth = (): AuthPayload | null => {
   if (typeof window === "undefined") return null;
