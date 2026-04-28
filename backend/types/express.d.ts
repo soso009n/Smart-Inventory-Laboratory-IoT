@@ -1,14 +1,12 @@
-import type { UserRole } from '../middleware/auth';
+import "express-serve-static-core";
 
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: number;
-        email: string;
-        role: UserRole;
-      };
-    }
+declare module "express-serve-static-core" {
+  interface Request {
+    user?: {
+      id: number;
+      email: string;
+      role: "admin" | "student";
+    };
   }
 }
 
