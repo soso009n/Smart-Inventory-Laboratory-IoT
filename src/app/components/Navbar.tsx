@@ -1,17 +1,20 @@
 import { useState } from "react";
-import { Search, Bell, User, LogOut } from "lucide-react";
+import { Search, Bell, User, LogOut, Moon, Sun } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../../contexts/AuthContext";
+import { useTheme } from "next-themes";
 
 export default function Navbar() {
   const [showDropdown, setShowDropdown] = useState(false);
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { resolvedTheme, setTheme } = useTheme();
   const currentUser = {
     name: user?.full_name ?? "User",
     role: user?.role === "admin" ? "Admin" : "Student",
     email: user?.email ?? "unknown",
   };
+  const isDark = resolvedTheme === "dark";
 
   const handleLogout = () => {
     logout();
@@ -31,6 +34,19 @@ export default function Navbar() {
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setTheme(isDark ? "light" : "dark")}
+          className="p-2.5 hover:bg-muted rounded-lg transition-colors"
+          aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          title={isDark ? "Light mode" : "Dark mode"}
+        >
+          {isDark ? (
+            <Sun className="w-5 h-5 text-foreground" />
+          ) : (
+            <Moon className="w-5 h-5 text-foreground" />
+          )}
+        </button>
         <button className="relative p-2.5 hover:bg-muted rounded-lg transition-colors">
           <Bell className="w-5 h-5 text-foreground" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-destructive rounded-full animate-pulse"></span>

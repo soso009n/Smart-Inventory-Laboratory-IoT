@@ -110,7 +110,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-6 py-10">
+    <div className="auth-shell min-h-screen bg-slate-50 flex items-center justify-center px-6 py-10">
       <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-lg p-8 space-y-6">
         <div className="space-y-2 text-center">
           <h1 className="text-2xl font-bold text-slate-800">Lab Inventory Login</h1>
