@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { query } from "../config/db";
+import { query, transaction } from "../config/db";
 
 type InventoryStatus = "Available" | "In Use" | "Maintenance";
 
@@ -404,6 +404,10 @@ export const getTrashItems = async (_req: Request, res: Response): Promise<void>
 };
 
 // 8. PERMANENT DELETE: Hard delete dari Trash
+// 8. PERMANENT DELETE: Hard delete dari Trash
+// Menghapus item secara permanen beserta seluruh riwayat loans yang mereferensikan item tersebut.
+// Cocok untuk kebutuhan fitur Hard Delete TA.
+// Catatan: histori loan item tersebut akan ikut hilang permanen.
 export const permanentDeleteItem = async (req: Request, res: Response): Promise<void> => {
   try {
     const id = parseId(req.params.id);
@@ -413,66 +417,85 @@ export const permanentDeleteItem = async (req: Request, res: Response): Promise<
       return;
     }
 
-    const itemInTrash = await query<IdRow>(
-      `
-      SELECT id
-      FROM items
-      WHERE id = $1
-        AND deleted_at IS NOT NULL
-      LIMIT 1
-      `,
-      [id]
-    );
-
-    if (itemInTrash.rows.length === 0) {
-      sendError(res, 404, "Item tidak ditemukan di Trash");
-      return;
-    }
-
-    const relatedLoans = await query<IdRow>(
-      `
-      SELECT id
-      FROM loans
-      WHERE item_id = $1
-      LIMIT 1
-      `,
-      [id]
-    );
-
-    if (relatedLoans.rows.length > 0) {
-      sendError(
-        res,
-        400,
-        "Item tidak bisa dihapus permanen karena masih memiliki riwayat peminjaman. Hapus riwayat loan terlebih dahulu atau biarkan item tetap di Trash."
+    const deletedItem = await transaction(async (client) => {
+      const itemResult = await client.query<InventoryItemRow>(
+        `
+        SELECT *
+        FROM items
+        WHERE id = $1
+          AND deleted_at IS NOT NULL
+        FOR UPDATE
+        `,
+        [id]
       );
-      return;
-    }
 
-    const result = await query<InventoryItemRow>(
-      `
-      DELETE FROM items
-      WHERE id = $1
-        AND deleted_at IS NOT NULL
-      RETURNING *
-      `,
-      [id]
-    );
+      if (itemResult.rows.length === 0) {
+        throw new Error("ITEM_NOT_FOUND_IN_TRASH");
+      }
 
-    if (result.rows.length === 0) {
-      sendError(res, 404, "Item tidak ditemukan di Trash");
-      return;
-    }
+      const activeLoans = await client.query<IdRow>(
+        `
+        SELECT id
+        FROM loans
+        WHERE item_id = $1
+          AND status IN ('Borrowed', 'Overdue')
+          AND deleted_at IS NULL
+        LIMIT 1
+        `,
+        [id]
+      );
+
+      if (activeLoans.rows.length > 0) {
+        throw new Error("ITEM_HAS_ACTIVE_LOANS");
+      }
+
+      await client.query(
+        `
+        DELETE FROM loans
+        WHERE item_id = $1
+        `,
+        [id]
+      );
+
+      const result = await client.query<InventoryItemRow>(
+        `
+        DELETE FROM items
+        WHERE id = $1
+          AND deleted_at IS NOT NULL
+        RETURNING *
+        `,
+        [id]
+      );
+
+      if (result.rows.length === 0) {
+        throw new Error("ITEM_NOT_FOUND_IN_TRASH");
+      }
+
+      return result.rows[0];
+    });
 
     res.status(200).json({
       success: true,
-      message: "Item berhasil dihapus permanen",
-      data: result.rows[0],
+      message: "Item dan seluruh riwayat loan terkait berhasil dihapus permanen",
+      data: deletedItem,
     });
   } catch (error: unknown) {
+    const message = getErrorMessage(error);
+
+    if (message === "ITEM_NOT_FOUND_IN_TRASH") {
+      sendError(res, 404, "Item tidak ditemukan di Trash");
+      return;
+    }
+
+    if (message === "ITEM_HAS_ACTIVE_LOANS") {
+      sendError(res, 400, "Item tidak bisa dihapus permanen karena masih memiliki loan aktif");
+      return;
+    }
+
     res.status(500).json({
       success: false,
       message: "Gagal menghapus item permanen",
-      error: getErrorMessage(error),
+      error: message,
     });
   }
 };
